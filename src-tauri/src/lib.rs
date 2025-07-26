@@ -3,6 +3,9 @@ use probe_rs::probe::list::Lister;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+mod rtt;
+use rtt::{RttManager, RttStatus};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProbeInfo {
     pub name: String,
@@ -17,6 +20,8 @@ pub struct SessionInfo {
     pub target_name: String,
     pub connected: bool,
     pub chip_id: Option<String>,
+    pub rtt_enabled: bool,
+    pub transport_type: String, // "RTT", "Memory", or "Hybrid"
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -36,8 +41,9 @@ pub struct VariableValue {
     pub value: f64,
 }
 
-// Global session manager for probe-rs session
+// Global session manager for probe-rs session and RTT
 static SESSION_MANAGER: Mutex<Option<Session>> = Mutex::new(None);
+static RTT_MANAGER: Mutex<Option<RttManager>> = Mutex::new(None);
 
 // Memory descriptor structure as it appears in MCU flash
 #[derive(Debug, Clone)]
@@ -168,12 +174,50 @@ async fn connect_to_mcu(probe_index: usize) -> Result<SessionInfo, String> {
         *session_guard = Some(session);
     }
     
-    println!("MCU connection completed successfully");
+    // Try to initialize RTT if this is a J-Link probe
+    let mut rtt_enabled = false;
+    let mut transport_type = "Memory".to_string();
+    
+    if probes[probe_index].probe_type().to_lowercase().contains("jlink") {
+        println!("J-Link detected, attempting RTT initialization");
+        
+        // Initialize RTT manager
+        let mut rtt_manager = RttManager::new();
+        
+        // Get session for RTT initialization
+        {
+            let mut session_guard = SESSION_MANAGER.lock().unwrap();
+            if let Some(ref mut session) = session_guard.as_mut() {
+                match rtt_manager.initialize(session) {
+                    Ok(_) => {
+                        println!("RTT initialization successful");
+                        rtt_enabled = true;
+                        transport_type = "RTT".to_string();
+                        
+                        // Store RTT manager globally
+                        let mut rtt_guard = RTT_MANAGER.lock().unwrap();
+                        *rtt_guard = Some(rtt_manager);
+                    },
+                    Err(e) => {
+                        println!("RTT initialization failed: {}", e);
+                        println!("Falling back to memory-based transport");
+                        transport_type = "Memory".to_string();
+                    }
+                }
+            }
+        }
+    } else {
+        println!("Non-J-Link probe detected, using memory transport");
+    }
+    
+    println!("MCU connection completed successfully with {} transport", transport_type);
     
     Ok(SessionInfo {
         target_name,
         connected: true,
         chip_id,
+        rtt_enabled,
+        transport_type,
     })
 }
 
@@ -425,11 +469,36 @@ fn read_mcu_variable(address: u32, var_type: &str) -> Result<f64, String> {
 
 #[tauri::command]
 async fn read_variable(address: u32, var_type: String) -> Result<f64, String> {
-    // Try real MCU read first
+    // Try RTT read first if available
+    {
+        let mut rtt_guard = RTT_MANAGER.lock().unwrap();
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        
+        if let (Some(ref mut rtt_manager), Some(ref mut session)) = (rtt_guard.as_mut(), session_guard.as_mut()) {
+            if rtt_manager.is_available() {
+                match rtt_manager.read_variable(session, address, &var_type) {
+                    Ok(value) => {
+                        println!("RTT read successful: 0x{:08X} = {}", address, value);
+                        return Ok(value);
+                    },
+                    Err(e) => {
+                        println!("RTT read failed: {}, falling back to memory", e);
+                        // Continue to memory read fallback
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to memory read
     match read_mcu_variable(address, &var_type) {
-        Ok(value) => Ok(value),
+        Ok(value) => {
+            println!("Memory read successful: 0x{:08X} = {}", address, value);
+            Ok(value)
+        },
         Err(_) => {
             // Fallback to mock simulation if no MCU session
+            println!("Memory read failed, using mock simulation for 0x{:08X}", address);
             match var_type.as_str() {
                 "UINT8" => {
                     // Simulate button state (0 or 1)
@@ -541,18 +610,39 @@ fn write_mcu_variable(address: u32, var_type: &str, value: f64) -> Result<(), St
 
 #[tauri::command]
 async fn write_variable(address: u32, var_type: String, value: f64) -> Result<(), String> {
-    // Try real MCU write first
+    // Try RTT write first if available
+    {
+        let mut rtt_guard = RTT_MANAGER.lock().unwrap();
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        
+        if let (Some(ref mut rtt_manager), Some(ref mut session)) = (rtt_guard.as_mut(), session_guard.as_mut()) {
+            if rtt_manager.is_available() {
+                match rtt_manager.write_variable(session, address, &var_type, value) {
+                    Ok(_) => {
+                        println!("RTT write successful: 0x{:08X} = {}", address, value);
+                        return Ok(());
+                    },
+                    Err(e) => {
+                        println!("RTT write failed: {}, falling back to memory", e);
+                        // Continue to memory write fallback
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to memory write
     match write_mcu_variable(address, &var_type, value) {
         Ok(_) => {
-            println!("Successfully wrote {} to MCU address 0x{:08X} (type: {})", value, address, var_type);
+            println!("Memory write successful: 0x{:08X} = {}", address, value);
             Ok(())
         },
         Err(e) => {
             // ST-Link doesn't support RAM writes on STM32H735 - this is expected
-            println!("ST-Link write limitation (expected): {}", e);
-            println!("Note: ST-Link + STM32H735 doesn't support debug writes to RAM");
-            println!("For real MCU control, consider using RTT or different probe");
-            Err(format!("ST-Link write not supported on this target: {}", e))
+            println!("Memory write limitation: {}", e);
+            println!("Note: Some probes don't support debug writes to RAM");
+            println!("RTT provides better write support when available");
+            Err(format!("Memory write not supported on this target: {}", e))
         }
     }
 }
@@ -561,6 +651,17 @@ async fn write_variable(address: u32, var_type: String, value: f64) -> Result<()
 async fn disconnect_probe() -> Result<(), String> {
     println!("Disconnecting probe and cleaning up session");
     
+    // Cleanup RTT first
+    {
+        let mut rtt_guard = RTT_MANAGER.lock().unwrap();
+        if let Some(ref mut rtt_manager) = rtt_guard.as_mut() {
+            rtt_manager.cleanup();
+        }
+        *rtt_guard = None;
+        println!("RTT cleaned up");
+    }
+    
+    // Then cleanup session
     {
         let mut session_guard = SESSION_MANAGER.lock().unwrap();
         if session_guard.is_some() {
@@ -577,6 +678,16 @@ async fn disconnect_probe() -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(500));
     
     Ok(())
+}
+
+#[tauri::command] 
+async fn get_rtt_status() -> Result<RttStatus, String> {
+    let rtt_guard = RTT_MANAGER.lock().unwrap();
+    if let Some(ref rtt_manager) = rtt_guard.as_ref() {
+        Ok(rtt_manager.get_status().clone())
+    } else {
+        Ok(RttStatus::default())
+    }
 }
 
 #[tauri::command]
@@ -658,6 +769,7 @@ pub fn run() {
             discover_variables_at_address,
             read_variable, 
             write_variable,
+            get_rtt_status,
             test_ram_writes
         ])
         .run(tauri::generate_context!())

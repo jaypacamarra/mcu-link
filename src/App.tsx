@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ProbeInfo, SessionInfo, VariableInfo } from './types';
 import ProbeSelector from './components/ProbeSelector';
 import McuStatus from './components/McuStatus';
+import RttStatus from './components/RttStatus';
 import VariablePanel from './components/VariablePanel';
 import PlotPanel from './components/PlotPanel';
 import "./App.css";
@@ -167,6 +168,9 @@ function App() {
                 <McuStatus 
                   session={session}
                   error={error}
+                />
+                <RttStatus 
+                  isConnected={session?.connected || false}
                 />
               </div>
             </div>

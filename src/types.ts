@@ -10,6 +10,8 @@ export interface SessionInfo {
   target_name: string;
   connected: boolean;
   chip_id?: string;
+  rtt_enabled: boolean;
+  transport_type: string; // "RTT", "Memory", or "Hybrid"
 }
 
 export interface VariableInfo {
@@ -25,4 +27,15 @@ export interface VariableInfo {
 export interface VariableValue {
   name: string;
   value: number;
+}
+
+export interface RttStatus {
+  enabled: boolean;
+  channels_found: number;
+  control_block_addr?: number;
+  up_channel_available: boolean;
+  down_channel_available: boolean;
+  bytes_read: number;
+  bytes_written: number;
+  last_activity?: string;
 }
