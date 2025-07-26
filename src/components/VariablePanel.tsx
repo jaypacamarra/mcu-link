@@ -6,15 +6,17 @@ import VariableControl from './VariableControl';
 interface VariablePanelProps {
   isConnected: boolean;
   onVariablesDiscovered?: (variables: VariableInfo[]) => void;
+  mculinkAddress: string;
+  shouldAutoDiscover: boolean;
+  variables: VariableInfo[];
 }
 
-export default function VariablePanel({ isConnected, onVariablesDiscovered }: VariablePanelProps) {
-  const [variables, setVariables] = useState<VariableInfo[]>([]);
+export default function VariablePanel({ isConnected, onVariablesDiscovered, mculinkAddress, shouldAutoDiscover, variables }: VariablePanelProps) {
   const [values, setValues] = useState<Map<number, number>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const isDiscoveringRef = useRef(false);
-  const [mculinkAddress, setMculinkAddress] = useState<string>("0x080F0000");
+  const [localMculinkAddress, setLocalMculinkAddress] = useState<string>(mculinkAddress);
   const [testResults, setTestResults] = useState<string | null>(null);
 
   const discoverVariables = async () => {
@@ -34,18 +36,17 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
     console.log("VariablePanel - Starting variable discovery...");
     try {
       // Parse the hex address
-      const addressNumber = parseInt(mculinkAddress, 16);
-      console.log("VariablePanel - Calling invoke('discover_variables_at_address') with address:", mculinkAddress, "->", addressNumber);
+      const addressNumber = parseInt(localMculinkAddress, 16);
+      console.log("VariablePanel - Calling invoke('discover_variables_at_address') with address:", localMculinkAddress, "->", addressNumber);
       const discoveredVars = await invoke<VariableInfo[]>("discover_variables_at_address", { address: addressNumber });
       console.log("VariablePanel - invoke completed, result:", discoveredVars);
       
       console.log("VariablePanel - Raw invoke result:", discoveredVars);
-      setVariables(discoveredVars);
       setError(null);
       
       console.log("VariablePanel - Discovered variables:", discoveredVars);
       
-      // Notify parent component about discovered variables
+      // Notify parent component about discovered variables (parent will update the variables state)
       if (onVariablesDiscovered) {
         console.log("VariablePanel - Calling onVariablesDiscovered with:", discoveredVars);
         onVariablesDiscovered(discoveredVars);
@@ -53,7 +54,7 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
         console.log("VariablePanel - No onVariablesDiscovered callback provided");
       }
       
-      // Initialize values
+      // Initialize values for the discovered variables
       const initialValues = new Map();
       for (const variable of discoveredVars) {
         try {
@@ -139,10 +140,19 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
     return () => clearInterval(interval);
   }, [isConnected, variables, values]);
 
+  // Only auto-discover when parent component says we should
   useEffect(() => {
-    console.log("VariablePanel - useEffect triggered, isConnected:", isConnected);
-    discoverVariables();
-  }, [isConnected]);
+    console.log("VariablePanel - useEffect triggered, isConnected:", isConnected, "shouldAutoDiscover:", shouldAutoDiscover, "variables.length:", variables.length);
+    if (isConnected && shouldAutoDiscover && variables.length === 0 && !isDiscoveringRef.current) {
+      console.log("VariablePanel - Auto-discovering variables on initial connection");
+      discoverVariables();
+    }
+  }, [isConnected, shouldAutoDiscover]);
+  
+  // Separate effect to handle when variables state gets reset externally
+  useEffect(() => {
+    console.log("VariablePanel - Variables effect, variables.length:", variables.length);
+  }, [variables]);
 
   if (!isConnected) {
     return (
@@ -176,8 +186,8 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
           MCU Link Section Address:
           <input 
             type="text" 
-            value={mculinkAddress}
-            onChange={(e) => setMculinkAddress(e.target.value)}
+            value={localMculinkAddress}
+            onChange={(e) => setLocalMculinkAddress(e.target.value)}
             placeholder="0x080F0000"
             disabled={!isConnected}
             style={{ marginLeft: '8px', fontFamily: 'monospace' }}
