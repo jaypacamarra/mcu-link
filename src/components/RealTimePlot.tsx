@@ -8,7 +8,7 @@ interface RealTimePlotProps {
   color?: string;
   unit?: string;
   bufferSize?: number;
-  timeWindow?: number; // seconds
+  windowSize?: number; // number of points to display
 }
 
 export default function RealTimePlot({ 
@@ -16,40 +16,50 @@ export default function RealTimePlot({
   title, 
   color = "#8884d8", 
   unit = "", 
-  bufferSize = 1000,
-  timeWindow = 10 
+  bufferSize = 10000,
+  windowSize = 1000
 }: RealTimePlotProps) {
   const [buffer] = useState(() => new CircularBuffer(bufferSize));
   const [plotData, setPlotData] = useState<DataPoint[]>([]);
+  const [lastUpdateTime, setLastUpdateTime] = useState(0);
 
   useEffect(() => {
     if (data.length > 0) {
       const latestValue = data[data.length - 1];
       buffer.push(latestValue);
       
-      // Get data within time window
-      const now = Date.now();
-      const windowStart = now - (timeWindow * 1000);
-      const allData = buffer.getAll();
-      const windowData = allData.filter(point => point.timestamp >= windowStart);
+      // LUDICROUS SPEED - ZERO THROTTLING! 🚀
+      // REMOVED ALL LIMITS - MAXIMUM CHAOS MODE!
       
-      // Format data for Recharts (relative timestamps)
-      const formattedData = windowData.map(point => ({
-        timestamp: point.timestamp,
-        value: point.value,
-        relativeTime: (point.timestamp - now) / 1000 // seconds ago (negative)
+      // Use sample index instead of timestamps for stable x-axis
+      const allData = buffer.getAll();
+      const maxPoints = Math.min(300, allData.length); // Limit to 300 points for performance
+      const step = Math.max(1, Math.floor(allData.length / maxPoints));
+      
+      // Use configurable window size
+      const recentData = allData.slice(-windowSize);
+      
+      // Pad with empty slots if needed to maintain consistent array size
+      const paddedData = new Array(windowSize).fill(null);
+      recentData.forEach((point, index) => {
+        paddedData[windowSize - recentData.length + index] = point;
+      });
+      
+      // Convert to chart data with categorical x-axis
+      const chartData = paddedData.map((point, index) => ({
+        timestamp: point?.timestamp || Date.now(),
+        value: point?.value || null,
+        x: index.toString() // String index for categorical axis
       }));
       
-      setPlotData(formattedData);
+      setPlotData(chartData);
     }
-  }, [data, buffer, timeWindow]);
+  }, [data, buffer, windowSize, lastUpdateTime]);
 
-  const formatXAxisLabel = (tickItem: number) => {
-    return `${tickItem.toFixed(1)}s`;
-  };
-
-  const formatTooltipLabel = (value: number) => {
-    return `${Math.abs(value).toFixed(2)}s ago`;
+  const formatTooltipLabel = (value: string) => {
+    const index = parseInt(value);
+    const pointsAgo = (windowSize - index);
+    return `${pointsAgo} samples ago`;
   };
 
   return (
@@ -68,16 +78,18 @@ export default function RealTimePlot({
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis 
-              dataKey="relativeTime"
-              type="number"
-              scale="time"
-              domain={[-timeWindow, 0]}
-              tickFormatter={formatXAxisLabel}
-              stroke="#666"
+              dataKey="x"
+              type="category"
+              tick={false}
+              axisLine={false}
+              hide={true}
+              tickLine={false}
             />
             <YAxis 
               stroke="#666"
               tickFormatter={(value) => `${value.toFixed(1)}${unit}`}
+              domain={['auto', 'auto']}
+              allowDataOverflow={false}
             />
             <Tooltip 
               labelFormatter={formatTooltipLabel}
@@ -95,6 +107,7 @@ export default function RealTimePlot({
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
+              connectNulls={false}
             />
           </LineChart>
         </ResponsiveContainer>

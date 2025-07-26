@@ -38,7 +38,7 @@ export default function ProbeSelector({
             onClick={onConnect}
             disabled={isConnecting}
           >
-            {isConnecting ? 'Connecting...' : 'Connect'}
+            {isConnecting ? 'Connecting... (Please wait)' : 'Connect'}
           </button>
         </div>
       )}

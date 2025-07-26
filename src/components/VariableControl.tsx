@@ -10,9 +10,15 @@ interface VariableControlProps {
 export default function VariableControl({ variable, value, onValueChange }: VariableControlProps) {
   const [localValue, setLocalValue] = useState(value);
 
-  const handleChange = (newValue: number) => {
+  const handleChange = async (newValue: number) => {
     setLocalValue(newValue);
-    onValueChange(variable.address, variable.var_type, newValue);
+    try {
+      await onValueChange(variable.address, variable.var_type, newValue);
+    } catch (err) {
+      console.warn(`Write not supported with current probe: ${err}`);
+      // Reset to previous value since write failed
+      setLocalValue(value);
+    }
   };
 
   const renderControl = () => {

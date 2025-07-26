@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { VariableInfo } from '../types';
 import VariableControl from './VariableControl';
@@ -12,18 +12,45 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
   const [variables, setVariables] = useState<VariableInfo[]>([]);
   const [values, setValues] = useState<Map<number, number>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
+  const isDiscoveringRef = useRef(false);
+  const [mculinkAddress, setMculinkAddress] = useState<string>("0x080F0000");
+  const [testResults, setTestResults] = useState<string | null>(null);
 
   const discoverVariables = async () => {
-    if (!isConnected) return;
+    console.log("VariablePanel - discoverVariables called, isConnected:", isConnected, "isDiscovering:", isDiscovering, "ref:", isDiscoveringRef.current);
+    if (!isConnected) {
+      console.log("VariablePanel - Not connected, skipping discovery");
+      return;
+    }
     
+    if (isDiscoveringRef.current) {
+      console.log("VariablePanel - Already discovering (ref check), skipping");
+      return;
+    }
+    
+    isDiscoveringRef.current = true;
+    setIsDiscovering(true);
+    console.log("VariablePanel - Starting variable discovery...");
     try {
-      const discoveredVars = await invoke<VariableInfo[]>("discover_variables");
+      // Parse the hex address
+      const addressNumber = parseInt(mculinkAddress, 16);
+      console.log("VariablePanel - Calling invoke('discover_variables_at_address') with address:", mculinkAddress, "->", addressNumber);
+      const discoveredVars = await invoke<VariableInfo[]>("discover_variables_at_address", { address: addressNumber });
+      console.log("VariablePanel - invoke completed, result:", discoveredVars);
+      
+      console.log("VariablePanel - Raw invoke result:", discoveredVars);
       setVariables(discoveredVars);
       setError(null);
       
+      console.log("VariablePanel - Discovered variables:", discoveredVars);
+      
       // Notify parent component about discovered variables
       if (onVariablesDiscovered) {
+        console.log("VariablePanel - Calling onVariablesDiscovered with:", discoveredVars);
         onVariablesDiscovered(discoveredVars);
+      } else {
+        console.log("VariablePanel - No onVariablesDiscovered callback provided");
       }
       
       // Initialize values
@@ -41,7 +68,11 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
       }
       setValues(initialValues);
     } catch (err) {
+      console.log("VariablePanel - Discovery failed:", err);
       setError(`Failed to discover variables: ${err}`);
+    } finally {
+      setIsDiscovering(false);
+      isDiscoveringRef.current = false;
     }
   };
 
@@ -57,6 +88,20 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
       setValues(prev => new Map(prev.set(address, value)));
     } catch (err) {
       setError(`Failed to write variable: ${err}`);
+    }
+  };
+
+  const runRamTests = async () => {
+    if (!isConnected) return;
+    
+    try {
+      console.log("Running RAM write tests...");
+      const results = await invoke<string>("test_ram_writes");
+      setTestResults(results);
+      console.log("Test results:", results);
+    } catch (err) {
+      setTestResults(`Test failed: ${err}`);
+      console.error("RAM test failed:", err);
     }
   };
 
@@ -95,6 +140,7 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
   }, [isConnected, variables, values]);
 
   useEffect(() => {
+    console.log("VariablePanel - useEffect triggered, isConnected:", isConnected);
     discoverVariables();
   }, [isConnected]);
 
@@ -125,9 +171,40 @@ export default function VariablePanel({ isConnected, onVariablesDiscovered }: Va
         </div>
       )}
 
-      <button onClick={discoverVariables} disabled={!isConnected}>
-        Refresh Variables
-      </button>
+      <div className="discovery-controls">
+        <label>
+          MCU Link Section Address:
+          <input 
+            type="text" 
+            value={mculinkAddress}
+            onChange={(e) => setMculinkAddress(e.target.value)}
+            placeholder="0x080F0000"
+            disabled={!isConnected}
+            style={{ marginLeft: '8px', fontFamily: 'monospace' }}
+          />
+        </label>
+        <button onClick={discoverVariables} disabled={!isConnected || isDiscovering}>
+          {isDiscovering ? 'Discovering...' : 'Discover Variables'}
+        </button>
+        <button onClick={runRamTests} disabled={!isConnected} style={{ marginLeft: '8px' }}>
+          Test RAM Writes
+        </button>
+      </div>
+
+      {testResults && (
+        <div className="test-results" style={{ 
+          marginTop: '10px', 
+          padding: '10px', 
+          backgroundColor: '#f5f5f5', 
+          border: '1px solid #ddd',
+          fontFamily: 'monospace',
+          whiteSpace: 'pre-line',
+          fontSize: '12px'
+        }}>
+          <h4>RAM Write Test Results:</h4>
+          {testResults}
+        </div>
+      )}
 
       {Object.entries(categorizedVars).map(([category, categoryVars]) => (
         <div key={category} className="variable-category">
