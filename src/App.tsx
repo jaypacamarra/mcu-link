@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ProbeInfo, SessionInfo } from './types';
+import { ProbeInfo, SessionInfo, VariableInfo } from './types';
 import ProbeSelector from './components/ProbeSelector';
 import McuStatus from './components/McuStatus';
+import VariablePanel from './components/VariablePanel';
+import PlotPanel from './components/PlotPanel';
 import "./App.css";
 
 function App() {
@@ -13,6 +15,7 @@ function App() {
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [isDetecting, setIsDetecting] = useState<boolean>(false);
   const [isInitialConnection, setIsInitialConnection] = useState<boolean>(true);
+  const [variables, setVariables] = useState<VariableInfo[]>([]);
 
   const detectProbes = async () => {
     setIsDetecting(true);
@@ -84,6 +87,16 @@ function App() {
         <McuStatus 
           session={session}
           error={error}
+        />
+        
+        <VariablePanel 
+          isConnected={session?.connected || false}
+          onVariablesDiscovered={setVariables}
+        />
+        
+        <PlotPanel 
+          isConnected={session?.connected || false}
+          variables={variables}
         />
       </div>
     </main>
