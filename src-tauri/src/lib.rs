@@ -558,6 +558,28 @@ async fn write_variable(address: u32, var_type: String, value: f64) -> Result<()
 }
 
 #[tauri::command]
+async fn disconnect_probe() -> Result<(), String> {
+    println!("Disconnecting probe and cleaning up session");
+    
+    {
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        if session_guard.is_some() {
+            println!("Session found, disconnecting...");
+            *session_guard = None;
+            println!("Session cleaned up successfully");
+        } else {
+            println!("No active session to disconnect");
+            return Err("No active session to disconnect".to_string());
+        }
+    }
+    
+    // Add a small delay to ensure proper cleanup
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    
+    Ok(())
+}
+
+#[tauri::command]
 async fn test_ram_writes() -> Result<String, String> {
     println!("=== Starting RAM write tests ===");
     
@@ -630,7 +652,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet, 
             detect_probes, 
-            connect_to_mcu, 
+            connect_to_mcu,
+            disconnect_probe,
             discover_variables, 
             discover_variables_at_address,
             read_variable, 

@@ -62,6 +62,20 @@ function App() {
     }
   };
 
+  const disconnectFromMcu = async () => {
+    try {
+      await invoke("disconnect_probe");
+      setSession(null);
+      setVariables([]);
+      setHasDiscoveredVariables(false);
+      setError(null);
+      console.log("Successfully disconnected from MCU");
+    } catch (err) {
+      setError(`Failed to disconnect: ${err}`);
+      console.error("Disconnect error:", err);
+    }
+  };
+
   const connectToMcu = async (probeIndex?: number, isManual: boolean = false, retryCount: number = 3) => {
     const index = probeIndex ?? selectedProbe;
     console.log("connectToMcu called, isConnecting:", isConnecting, "ref:", isConnectingRef.current, "probe:", index, "manual:", isManual);
@@ -142,7 +156,9 @@ function App() {
                   selectedProbe={selectedProbe}
                   onProbeSelect={setSelectedProbe}
                   onConnect={() => connectToMcu(undefined, true)}
+                  onDisconnect={disconnectFromMcu}
                   isConnecting={isConnecting}
+                  isConnected={session?.connected || false}
                 />
               </div>
               

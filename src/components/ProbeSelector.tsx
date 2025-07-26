@@ -5,15 +5,19 @@ interface ProbeSelectorProps {
   selectedProbe: number;
   onProbeSelect: (index: number) => void;
   onConnect: () => void;
+  onDisconnect: () => void;
   isConnecting: boolean;
+  isConnected: boolean;
 }
 
 export default function ProbeSelector({ 
   probes, 
   selectedProbe, 
   onProbeSelect, 
-  onConnect, 
-  isConnecting 
+  onConnect,
+  onDisconnect,
+  isConnecting,
+  isConnected
 }: ProbeSelectorProps) {
   return (
     <div className="probe-selector">
@@ -25,7 +29,7 @@ export default function ProbeSelector({
           <select 
             value={selectedProbe} 
             onChange={(e) => onProbeSelect(parseInt(e.target.value))}
-            disabled={isConnecting}
+            disabled={isConnecting || isConnected}
           >
             {probes.map((probe, index) => (
               <option key={index} value={index}>
@@ -34,12 +38,24 @@ export default function ProbeSelector({
               </option>
             ))}
           </select>
-          <button 
-            onClick={onConnect}
-            disabled={isConnecting}
-          >
-            {isConnecting ? 'Connecting... (Please wait)' : 'Connect'}
-          </button>
+          <div className="probe-actions">
+            {!isConnected ? (
+              <button 
+                onClick={onConnect}
+                disabled={isConnecting}
+                className="connect-button"
+              >
+                {isConnecting ? 'Connecting... (Please wait)' : 'Connect'}
+              </button>
+            ) : (
+              <button 
+                onClick={onDisconnect}
+                className="disconnect-button"
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
