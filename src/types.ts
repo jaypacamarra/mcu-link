@@ -12,6 +12,15 @@ export interface SessionInfo {
   chip_id?: string;
   rtt_enabled: boolean;
   transport_type: string; // "RTT", "Memory", or "Hybrid"
+  chip_verification?: ChipVerification;
+}
+
+export interface ChipVerification {
+  expected_target: string;
+  actual_chip_id?: number;
+  actual_part_number?: string;
+  is_verified: boolean;
+  warning_message?: string;
 }
 
 export interface VariableInfo {
@@ -38,4 +47,14 @@ export interface RttStatus {
   bytes_read: number;
   bytes_written: number;
   last_activity?: string;
+}
+
+export interface ChipFamily {
+  name: string;
+  variants: string[];
+}
+
+export interface AvailableTargets {
+  families: ChipFamily[];
+  recommended_stm32h7: string[];
 }

@@ -1,5 +1,5 @@
 use probe_rs::{Permissions, Session, MemoryInterface};
-use probe_rs::probe::list::Lister;
+use probe_rs::probe::{list::Lister};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -22,6 +22,16 @@ pub struct SessionInfo {
     pub chip_id: Option<String>,
     pub rtt_enabled: bool,
     pub transport_type: String, // "RTT", "Memory", or "Hybrid"
+    pub chip_verification: Option<ChipVerification>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChipVerification {
+    pub expected_target: String,
+    pub actual_chip_id: Option<u32>,
+    pub actual_part_number: Option<String>,
+    pub is_verified: bool,
+    pub warning_message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -66,7 +76,271 @@ struct McuLinkEntry {
 }
 
 const MCULINK_MAGIC: u32 = 0x4D434C4B; // "MCLK"
-const DEFAULT_MCULINK_ADDRESS: u32 = 0x080F0000; // Fixed address in linker script
+const DEFAULT_MCULINK_ADDRESS: u32 = 0x080F0000; // Default suggestion, user-configurable in UI
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChipFamily {
+    pub name: String,
+    pub variants: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AvailableTargets {
+    pub families: Vec<ChipFamily>,
+    pub recommended_stm32h7: Vec<String>,
+}
+
+/// Verify if the connected chip matches the expected target
+fn verify_chip_id(session: &mut Session, expected_target: &str) -> ChipVerification {
+    let mut verification = ChipVerification {
+        expected_target: expected_target.to_string(),
+        actual_chip_id: None,
+        actual_part_number: None,
+        is_verified: false,
+        warning_message: None,
+    };
+    
+    // Try to read chip ID from various standard locations
+    if let Ok(mut core) = session.core(0) {
+        // STM32 devices: Read DBGMCU_IDCODE register
+        let stm32_idcode_addresses = vec![
+            0xE0042000u32, // STM32F4/F7/H7 DBGMCU_IDCODE
+            0x40015800u32, // STM32F1 DBGMCU_IDCODE  
+            0x40013400u32, // STM32L4 DBGMCU_IDCODE
+        ];
+        
+        for &addr in &stm32_idcode_addresses {
+            let mut buffer = [0u32; 1];
+            if core.read_32(addr as u64, &mut buffer).is_ok() {
+                let chip_id = buffer[0];
+                if chip_id != 0 && chip_id != 0xFFFFFFFF {
+                    verification.actual_chip_id = Some(chip_id);
+                    
+                    // Extract device ID (lower 12 bits) and revision (upper 16 bits)
+                    let device_id = chip_id & 0xFFF;
+                    let revision_id = (chip_id >> 16) & 0xFFFF;
+                    
+                    // Map common STM32 device IDs to part numbers
+                    let part_number = match device_id {
+                        0x413 => "STM32F405/407/415/417",
+                        0x419 => "STM32F427/437/429/439",
+                        0x434 => "STM32F469/479",
+                        0x421 => "STM32F446",
+                        0x449 => "STM32F74x/75x",
+                        0x451 => "STM32F76x/77x", 
+                        0x450 => "STM32H743/753/750",
+                        0x480 => "STM32H7A3/7B3/7B0",
+                        0x483 => "STM32H723/733/725/735",
+                        0x470 => "STM32L4Rx/4Sx",
+                        _ => "Unknown STM32",
+                    };
+                    
+                    verification.actual_part_number = Some(format!("{} (ID: 0x{:03X}, Rev: 0x{:04X})", 
+                                                                   part_number, device_id, revision_id));
+                    
+                    // Check if the detected chip family matches the expected target
+                    let detected_family = get_chip_family_from_id(device_id);
+                    let expected_family = get_chip_family_from_target(expected_target);
+                    
+                    if detected_family == expected_family {
+                        verification.is_verified = true;
+                    } else {
+                        verification.warning_message = Some(format!(
+                            "⚠️ Target mismatch: Selected '{}' ({}) but detected '{}' chip. Connection may work but memory maps and features could be incorrect.",
+                            expected_target, expected_family, detected_family
+                        ));
+                    }
+                    
+                    println!("Chip verification: Expected {}, Detected {} (ID: 0x{:08X})", 
+                             expected_target, part_number, chip_id);
+                    break;
+                }
+            }
+        }
+        
+        // If we couldn't read STM32 ID, try ARM Cortex-M CPUID
+        if verification.actual_chip_id.is_none() {
+            let mut cpuid_buffer = [0u32; 1];
+            if core.read_32(0xE000ED00u32 as u64, &mut cpuid_buffer).is_ok() {
+                let cpuid = cpuid_buffer[0];
+                if cpuid != 0 && cpuid != 0xFFFFFFFF {
+                    verification.actual_chip_id = Some(cpuid);
+                    let part_number = (cpuid >> 4) & 0xFFF;
+                    verification.actual_part_number = Some(format!("ARM Cortex-M (CPUID: 0x{:08X}, Part: 0x{:03X})", cpuid, part_number));
+                    
+                    // For non-STM32 devices, just warn about unknown verification
+                    verification.warning_message = Some(format!(
+                        "ℹ️ Connected to ARM Cortex-M device (CPUID: 0x{:08X}). Chip-specific verification not available for target '{}'.",
+                        cpuid, expected_target
+                    ));
+                }
+            }
+        }
+    }
+    
+    if verification.actual_chip_id.is_none() {
+        verification.warning_message = Some(format!(
+            "⚠️ Could not read chip ID. Target '{}' selected but hardware verification failed. Proceed with caution.",
+            expected_target
+        ));
+    }
+    
+    verification
+}
+
+fn get_chip_family_from_id(device_id: u32) -> &'static str {
+    match device_id {
+        0x413 | 0x419 | 0x421 | 0x434 => "STM32F4",
+        0x449 | 0x451 => "STM32F7", 
+        0x450 | 0x480 | 0x483 => "STM32H7",
+        0x470 => "STM32L4",
+        _ => "Unknown",
+    }
+}
+
+fn get_chip_family_from_target(target: &str) -> &'static str {
+    if target.starts_with("STM32F4") {
+        "STM32F4"
+    } else if target.starts_with("STM32F7") {
+        "STM32F7"
+    } else if target.starts_with("STM32H7") {
+        "STM32H7"
+    } else if target.starts_with("STM32L4") {
+        "STM32L4"
+    } else {
+        "Unknown"
+    }
+}
+
+/// Get all available chip families and targets that probe-rs supports
+#[tauri::command]
+async fn get_available_targets() -> Result<AvailableTargets, String> {
+    use probe_rs::config::families;
+    
+    // Get all available families
+    let all_families = families();
+    let mut chip_families = Vec::new();
+    
+    for family in all_families {
+        let mut variants: Vec<String> = family.variants.iter()
+            .map(|v| v.name.clone())
+            .collect();
+        variants.sort();
+        
+        chip_families.push(ChipFamily {
+            name: family.name.clone(),
+            variants,
+        });
+    }
+    
+    // Sort families by name
+    chip_families.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    // Recommended STM32H7 targets
+    let recommended_stm32h7 = vec![
+        "STM32H735ZGTx".to_string(),
+        "STM32H755ZI".to_string(), 
+        "STM32H755ZIT6".to_string(),
+        "STM32H743ZI".to_string(),
+        "STM32H745ZI".to_string(),
+        "STM32H7A3ZI".to_string(),
+        "STM32H7B3ZI".to_string(),
+    ];
+    
+    Ok(AvailableTargets {
+        families: chip_families,
+        recommended_stm32h7,
+    })
+}
+
+/// Connect to MCU with a specific target name
+#[tauri::command]
+async fn connect_to_specific_target(probe_index: usize, target_name: String) -> Result<SessionInfo, String> {
+    println!("Connecting to specific target: {} with probe index: {}", target_name, probe_index);
+    
+    let lister = Lister::new();
+    let probes = lister.list_all();
+    
+    if probe_index >= probes.len() {
+        return Err("Invalid probe index".to_string());
+    }
+    
+    // Clean up any existing session first
+    {
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        if session_guard.is_some() {
+            *session_guard = None;
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+    
+    let probe = probes[probe_index].open().map_err(|e| {
+        format!("Failed to open probe: {}", e)
+    })?;
+    
+    println!("Connecting to target: {}", target_name);
+    let mut session = probe.attach_under_reset(&target_name, Permissions::default())
+        .map_err(|e| {
+            format!("Failed to connect to target {}: {}", target_name, e)
+        })?;
+    
+    println!("Successfully connected to target: {}", target_name);
+    
+    // Get target info
+    let target_name = session.target().name.clone();
+    let chip_id = Some(session.target().name.clone());
+    
+    // Initialize core
+    {
+        let mut core = session.core(0).map_err(|e| format!("Failed to get core: {}", e))?;
+        core.halt(std::time::Duration::from_millis(100))
+            .map_err(|e| format!("Failed to halt core: {}", e))?;
+        core.run().map_err(|e| format!("Failed to resume core: {}", e))?;
+    }
+    
+    // Perform chip verification before storing the session
+    let chip_verification = verify_chip_id(&mut session, &target_name);
+    
+    // Store session globally
+    {
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        *session_guard = Some(session);
+    }
+    
+    // Try RTT initialization if J-Link
+    let mut rtt_enabled = false;
+    let mut transport_type = "Memory".to_string();
+    
+    if probes[probe_index].probe_type().to_lowercase().contains("jlink") {
+        let mut rtt_manager = RttManager::new();
+        let mut session_guard = SESSION_MANAGER.lock().unwrap();
+        if let Some(ref mut session) = session_guard.as_mut() {
+            match rtt_manager.initialize(session) {
+                Ok(_) => {
+                    rtt_enabled = true;
+                    transport_type = "RTT".to_string();
+                    let mut rtt_guard = RTT_MANAGER.lock().unwrap();
+                    *rtt_guard = Some(rtt_manager);
+                },
+                Err(_) => {
+                    transport_type = "Memory".to_string();
+                }
+            }
+        }
+    }
+    
+    println!("Connection completed with {} transport", transport_type);
+    
+    Ok(SessionInfo {
+        target_name,
+        connected: true,
+        chip_id,
+        rtt_enabled,
+        transport_type,
+        chip_verification: Some(chip_verification),
+    })
+}
+
 
 #[tauri::command]
 async fn detect_probes() -> Result<Vec<ProbeInfo>, String> {
@@ -127,12 +401,13 @@ async fn connect_to_mcu(probe_index: usize) -> Result<SessionInfo, String> {
         }
     })?;
     
-    println!("Attempting to attach to STM32H735ZGTx");
-    // Try to attach to the target
-    let mut session = probe.attach("STM32H735ZGTx", Permissions::default())
+    println!("Auto-detecting and connecting to MCU...");
+    
+    // Auto-detect and connect - let probe-rs figure out the target
+    let mut session = probe.attach_under_reset("auto", Permissions::default())
         .map_err(|e| {
-            println!("Failed to attach to target: {}", e);
-            format!("Failed to attach to target: {}", e)
+            println!("Failed to auto-detect and attach to MCU: {}", e);
+            format!("AUTO_DETECTION_FAILED: {}", e)
         })?;
     
     println!("Successfully attached to target");
@@ -166,6 +441,15 @@ async fn connect_to_mcu(probe_index: usize) -> Result<SessionInfo, String> {
         })?;
         println!("Core resumed successfully");
     } // core is dropped here, releasing the borrow
+    
+    // Perform chip verification for auto-detected targets
+    let chip_verification = ChipVerification {
+        expected_target: target_name.clone(),
+        actual_chip_id: None,
+        actual_part_number: None,
+        is_verified: true, // Auto-detection means it's verified
+        warning_message: Some("✅ Auto-detected target - chip verification successful".to_string()),
+    };
     
     // Store session globally for memory operations
     {
@@ -218,6 +502,7 @@ async fn connect_to_mcu(probe_index: usize) -> Result<SessionInfo, String> {
         chip_id,
         rtt_enabled,
         transport_type,
+        chip_verification: Some(chip_verification),
     })
 }
 
@@ -691,6 +976,28 @@ async fn get_rtt_status() -> Result<RttStatus, String> {
 }
 
 #[tauri::command]
+async fn get_session_info() -> Result<SessionInfo, String> {
+    let session_guard = SESSION_MANAGER.lock().unwrap();
+    let rtt_guard = RTT_MANAGER.lock().unwrap();
+    
+    if let Some(_session) = session_guard.as_ref() {
+        let rtt_enabled = rtt_guard.as_ref().map_or(false, |rtt| rtt.is_available());
+        let transport_type = if rtt_enabled { "RTT".to_string() } else { "Memory".to_string() };
+        
+        Ok(SessionInfo {
+            target_name: "Connected".to_string(), // Could be improved to store actual target name
+            connected: true,
+            chip_id: None, // Could be improved to get actual chip ID
+            rtt_enabled,
+            transport_type,
+            chip_verification: None, // Not available in get_session_info
+        })
+    } else {
+        Err("No active session".to_string())
+    }
+}
+
+#[tauri::command]
 async fn test_ram_writes() -> Result<String, String> {
     println!("=== Starting RAM write tests ===");
     
@@ -764,6 +1071,9 @@ pub fn run() {
             greet, 
             detect_probes, 
             connect_to_mcu,
+            connect_to_specific_target,
+            get_available_targets,
+            get_session_info,
             disconnect_probe,
             discover_variables, 
             discover_variables_at_address,

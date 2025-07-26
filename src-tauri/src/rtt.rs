@@ -38,11 +38,8 @@ const RTT_CMD_PING: u8 = 0xFF;
 const RTT_STATUS_OK: u8 = 0x00;
 const RTT_STATUS_ERROR: u8 = 0x01;
 const RTT_STATUS_INVALID_CMD: u8 = 0x02;
-const RTT_STATUS_INVALID_TYPE: u8 = 0x03;
-
 // RTT Channels
 const RTT_CHANNEL_MCULINK: usize = 1; // Channel 0 is typically console
-const RTT_BUFFER_SIZE: usize = 1024;
 
 pub struct RttManager {
     rtt: Option<Rtt>,

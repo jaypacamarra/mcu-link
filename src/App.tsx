@@ -6,6 +6,7 @@ import McuStatus from './components/McuStatus';
 import RttStatus from './components/RttStatus';
 import VariablePanel from './components/VariablePanel';
 import PlotPanel from './components/PlotPanel';
+import TargetSelector from './components/TargetSelector';
 import "./App.css";
 
 function App() {
@@ -24,11 +25,52 @@ function App() {
   const [mculinkAddress, setMculinkAddress] = useState<string>('0x080F0000');
   const [hasDiscoveredVariables, setHasDiscoveredVariables] = useState<boolean>(false);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+  const [showTargetSelector, setShowTargetSelector] = useState<boolean>(false);
 
   const handleVariablesDiscovered = (discoveredVariables: VariableInfo[]) => {
     console.log("App - Variables discovered:", discoveredVariables);
     setVariables(discoveredVariables);
     setHasDiscoveredVariables(true);
+  };
+
+  const handleTargetSelected = async (targetName: string) => {
+    console.log("Target selected:", targetName);
+    setShowTargetSelector(false);
+    setError(null);
+    
+    // Give the backend a moment to complete the connection
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Refresh session state by calling backend
+    try {
+      const sessionInfo = await invoke<SessionInfo>("get_session_info");
+      setSession(sessionInfo);
+      console.log("Session updated after target selection:", sessionInfo);
+      
+      // If we're on the initial connection, mark it as complete
+      if (isInitialConnection) {
+        setIsInitialConnection(false);
+      }
+    } catch (err) {
+      console.error("Failed to refresh session info:", err);
+      // Try again with a longer delay
+      setTimeout(async () => {
+        try {
+          const sessionInfo = await invoke<SessionInfo>("get_session_info");
+          setSession(sessionInfo);
+          console.log("Session updated after retry:", sessionInfo);
+        } catch (retryErr) {
+          console.error("Failed to refresh session info on retry:", retryErr);
+          setError(`Connection may have succeeded but failed to get session info: ${retryErr}`);
+        }
+      }, 1000);
+    }
+  };
+
+  const handleTargetSelectorCancel = () => {
+    console.log("Target selector cancelled");
+    setShowTargetSelector(false);
+    setError("Connection cancelled - auto-detection failed");
   };
 
   const detectProbes = async () => {
@@ -112,9 +154,28 @@ function App() {
         if (attempt < retryCount) {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         } else {
-          // Only show error if this is a manual connection attempt or not the initial auto-connection
-          if (isManual || !isInitialConnection) {
-            setError(`Failed to connect to MCU after ${retryCount} attempts: ${err}`);
+          // Check if this is an auto-detection failure that should show target selector
+          const errorMessage = String(err);
+          if (errorMessage.includes("Unable to load specification for chip") || 
+              errorMessage.includes("auto-detection failed") ||
+              errorMessage.includes("Failed to connect to target")) {
+            if (isManual) {
+              console.log("Auto-detection failed, showing target selector");
+              setShowTargetSelector(true);
+              setError(null); // Clear error since we're showing target selector
+            } else {
+              // Even for auto-connection, show selector if user has probes connected
+              if (probes.length > 0) {
+                console.log("Auto-detection failed on startup, showing target selector");
+                setShowTargetSelector(true);
+                setError(null);
+              }
+            }
+          } else {
+            // Only show error if this is a manual connection attempt or not the initial auto-connection
+            if (isManual || !isInitialConnection) {
+              setError(`Failed to connect to MCU after ${retryCount} attempts: ${err}`);
+            }
           }
           setSession(null);
         }
@@ -161,6 +222,17 @@ function App() {
                   isConnecting={isConnecting}
                   isConnected={session?.connected || false}
                 />
+                
+                {/* Test button for target selector */}
+                {probes.length > 0 && !session?.connected && (
+                  <button 
+                    onClick={() => setShowTargetSelector(true)}
+                    className="refresh-btn"
+                    style={{ marginTop: '1rem' }}
+                  >
+                    Manual Target Selection
+                  </button>
+                )}
               </div>
               
               <div className="status-section">
@@ -395,6 +467,14 @@ function App() {
           </main>
         </div>
       </div>
+      
+      {/* Target Selector Modal */}
+      <TargetSelector 
+        isVisible={showTargetSelector}
+        probeIndex={selectedProbe}
+        onTargetSelected={handleTargetSelected}
+        onCancel={handleTargetSelectorCancel}
+      />
     </div>
   );
 }
