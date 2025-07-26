@@ -116,7 +116,7 @@ export default function RealTimePlot({
       <div className="plot-stats">
         <span className="data-points">Points: {plotData.length}</span>
         <span className="latest-value">
-          Latest: {plotData.length > 0 ? `${plotData[plotData.length - 1].value.toFixed(2)}${unit}` : 'No data'}
+          Latest: {plotData.length > 0 && plotData[plotData.length - 1].value !== null ? `${plotData[plotData.length - 1].value.toFixed(2)}${unit}` : 'No data'}
         </span>
       </div>
     </div>
