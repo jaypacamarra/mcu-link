@@ -1,49 +1,91 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ProbeInfo, SessionInfo } from './types';
+import ProbeSelector from './components/ProbeSelector';
+import McuStatus from './components/McuStatus';
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [probes, setProbes] = useState<ProbeInfo[]>([]);
+  const [selectedProbe, setSelectedProbe] = useState<number>(0);
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [isDetecting, setIsDetecting] = useState<boolean>(false);
+  const [isInitialConnection, setIsInitialConnection] = useState<boolean>(true);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const detectProbes = async () => {
+    setIsDetecting(true);
+    setError(null);
+    try {
+      const detectedProbes = await invoke<ProbeInfo[]>("detect_probes");
+      setProbes(detectedProbes);
+      
+      // Auto-connect to first probe if available
+      if (detectedProbes.length > 0) {
+        setSelectedProbe(0);
+        await connectToMcu(0);
+      }
+    } catch (err) {
+      setError(`Failed to detect probes: ${err}`);
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  const connectToMcu = async (probeIndex?: number, isManual: boolean = false) => {
+    const index = probeIndex ?? selectedProbe;
+    setIsConnecting(true);
+    setError(null);
+    try {
+      const sessionInfo = await invoke<SessionInfo>("connect_to_mcu", { 
+        probeIndex: index 
+      });
+      setSession(sessionInfo);
+      setError(null); // Clear any previous errors on successful connection
+    } catch (err) {
+      // Only show error if this is a manual connection attempt or not the initial auto-connection
+      if (isManual || !isInitialConnection) {
+        setError(`Failed to connect to MCU: ${err}`);
+      }
+      setSession(null);
+    } finally {
+      setIsConnecting(false);
+      if (isInitialConnection) {
+        setIsInitialConnection(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    detectProbes();
+  }, []);
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vitejs.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://reactjs.org" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+      <h1>MCU Link</h1>
+      
+      <div className="status-section">
+        <button 
+          onClick={detectProbes} 
+          disabled={isDetecting}
+        >
+          {isDetecting ? 'Detecting...' : 'Refresh Probes'}
+        </button>
+        
+        <ProbeSelector 
+          probes={probes}
+          selectedProbe={selectedProbe}
+          onProbeSelect={setSelectedProbe}
+          onConnect={() => connectToMcu(undefined, true)}
+          isConnecting={isConnecting}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+        
+        <McuStatus 
+          session={session}
+          error={error}
+        />
+      </div>
     </main>
   );
 }
