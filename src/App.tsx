@@ -22,6 +22,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<string>('connection');
   const [mculinkAddress, setMculinkAddress] = useState<string>('0x080F0000');
   const [hasDiscoveredVariables, setHasDiscoveredVariables] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
 
   const handleVariablesDiscovered = (discoveredVariables: VariableInfo[]) => {
     console.log("App - Variables discovered:", discoveredVariables);
@@ -297,54 +298,83 @@ function App() {
 
   return (
     <div className="app-container">
-      <header className="app-header">
-        <div className="header-content">
-          <h1>
-            <span className="title-icon">⚡</span>
-            MCU Link
-          </h1>
-          <div className="connection-indicator">
-            {session?.connected ? (
-              <span className="status-badge connected">Connected</span>
-            ) : (
-              <span className="status-badge disconnected">Disconnected</span>
+      <div className="app-layout">
+        {/* Sidebar */}
+        <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+          <div className="sidebar-header">
+            <button 
+              className="hamburger-btn"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            {sidebarOpen && (
+              <div className="sidebar-title">
+                <span className="title-icon">⚡</span>
+                MCU Link
+              </div>
             )}
           </div>
+          
+          <nav className="sidebar-nav">
+            <button 
+              className={`nav-item ${activeTab === 'connection' ? 'active' : ''}`}
+              onClick={() => setActiveTab('connection')}
+              title="Connection"
+            >
+              <span className="nav-icon">🔌</span>
+              {sidebarOpen && <span className="nav-label">Connection</span>}
+            </button>
+            <button 
+              className={`nav-item ${activeTab === 'variables' ? 'active' : ''}`}
+              onClick={() => setActiveTab('variables')}
+              disabled={!session?.connected}
+              title="Variables"
+            >
+              <span className="nav-icon">📊</span>
+              {sidebarOpen && <span className="nav-label">Variables</span>}
+            </button>
+            <button 
+              className={`nav-item ${activeTab === 'plots' ? 'active' : ''}`}
+              onClick={() => setActiveTab('plots')}
+              disabled={!session?.connected || variables.length === 0}
+              title="Real-Time Plots"
+            >
+              <span className="nav-icon">📈</span>
+              {sidebarOpen && <span className="nav-label">Real-Time Plots</span>}
+            </button>
+            <button 
+              className={`nav-item ${activeTab === 'config' ? 'active' : ''}`}
+              onClick={() => setActiveTab('config')}
+              title="Configuration"
+            >
+              <span className="nav-icon">⚙️</span>
+              {sidebarOpen && <span className="nav-label">Configuration</span>}
+            </button>
+          </nav>
+        </aside>
+
+        {/* Main Content Area */}
+        <div className="main-area">
+          <header className="app-header">
+            <div className="header-content">
+              <div className="connection-indicator">
+                {session?.connected ? (
+                  <span className="status-badge connected">Connected</span>
+                ) : (
+                  <span className="status-badge disconnected">Disconnected</span>
+                )}
+              </div>
+            </div>
+          </header>
+          
+          <main className="main-content">
+            {renderTabContent()}
+          </main>
         </div>
-      </header>
-      
-      <nav className="tab-nav">
-        <button 
-          className={`tab-button ${activeTab === 'connection' ? 'active' : ''}`}
-          onClick={() => setActiveTab('connection')}
-        >
-          Connection
-        </button>
-        <button 
-          className={`tab-button ${activeTab === 'variables' ? 'active' : ''}`}
-          onClick={() => setActiveTab('variables')}
-          disabled={!session?.connected}
-        >
-          Variables
-        </button>
-        <button 
-          className={`tab-button ${activeTab === 'plots' ? 'active' : ''}`}
-          onClick={() => setActiveTab('plots')}
-          disabled={!session?.connected || variables.length === 0}
-        >
-          Real-Time Plots
-        </button>
-        <button 
-          className={`tab-button ${activeTab === 'config' ? 'active' : ''}`}
-          onClick={() => setActiveTab('config')}
-        >
-          Configuration
-        </button>
-      </nav>
-      
-      <main className="main-content">
-        {renderTabContent()}
-      </main>
+      </div>
     </div>
   );
 }

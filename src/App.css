@@ -190,9 +190,150 @@ body {
 /* App Container */
 .app-container {
   min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 250px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-primary);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  transition: width 0.3s ease;
+  position: relative;
+  z-index: 100;
+}
+
+.sidebar.closed {
+  width: 60px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-primary);
+  gap: 0.75rem;
+}
+
+.hamburger-btn {
+  background: transparent !important;
+  border: none !important;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  gap: 4px;
+  padding: 0 !important;
+  border-radius: 4px;
+}
+
+.hamburger-btn span {
+  width: 18px;
+  height: 2px;
+  background: var(--text-primary);
+  transition: all 0.3s ease;
+  border-radius: 1px;
+}
+
+.hamburger-btn:hover span {
+  background: var(--accent-primary);
+}
+
+.sidebar-title {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, var(--accent-primary), #60A5FA);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nav-item {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-secondary) !important;
+  padding: 0.75rem 1rem !important;
+  margin: 0 0.5rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: all 0.2s ease;
+  text-align: left;
+  font-weight: 500;
+  min-height: 44px;
+}
+
+.nav-item:hover:not(:disabled) {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+  transform: translateX(4px);
+}
+
+.nav-item.active {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: var(--accent-primary) !important;
+  border-left: 3px solid var(--accent-primary);
+  margin-left: 0.5rem;
+  padding-left: calc(1rem - 3px) !important;
+}
+
+.nav-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--text-muted) !important;
+}
+
+.nav-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.nav-label {
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar.closed .nav-label {
+  display: none;
+}
+
+.sidebar.closed .nav-item {
+  justify-content: center;
+  padding: 0.75rem !important;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 /* Header */
@@ -261,46 +402,7 @@ body {
   color: var(--accent-error);
 }
 
-/* Tab Navigation */
-.tab-nav {
-  background: var(--bg-primary);
-  padding: 1rem 2rem;
-  display: flex;
-  max-width: 1400px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.tab-button {
-  background: transparent;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border-radius: 0.5rem;
-  margin-right: 0.5rem;
-  position: relative;
-}
-
-.tab-button:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: rgba(59, 130, 246, 0.1);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
-}
-
-.tab-button.active {
-  color: var(--accent-primary);
-  background: rgba(59, 130, 246, 0.15);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.tab-button:disabled {
-  color: var(--text-muted);
-  cursor: not-allowed;
-  opacity: 0.5;
-}
+/* Removed - Tab Navigation replaced with Sidebar */
 
 /* Main Content */
 .main-content {
@@ -754,8 +856,30 @@ select:focus {
     padding: 1rem;
   }
   
-  .tab-nav {
-    padding: 0 1rem;
+  /* Mobile sidebar adjustments */
+  .sidebar {
+    width: 200px;
+  }
+  
+  .sidebar.closed {
+    width: 50px;
+  }
+  
+  .sidebar-header {
+    padding: 0.75rem;
+  }
+  
+  .sidebar-title {
+    font-size: 1rem;
+  }
+  
+  .nav-item {
+    padding: 0.6rem 0.75rem !important;
+    margin: 0 0.25rem;
+  }
+  
+  .sidebar.closed .nav-item {
+    padding: 0.6rem !important;
   }
 }
 
