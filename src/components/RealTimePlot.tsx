@@ -21,7 +21,6 @@ export default function RealTimePlot({
 }: RealTimePlotProps) {
   const [buffer] = useState(() => new CircularBuffer(bufferSize));
   const [plotData, setPlotData] = useState<DataPoint[]>([]);
-  const [lastUpdateTime, setLastUpdateTime] = useState(0);
 
   useEffect(() => {
     if (data.length > 0) {
@@ -33,28 +32,20 @@ export default function RealTimePlot({
       
       // Use sample index instead of timestamps for stable x-axis
       const allData = buffer.getAll();
-      const maxPoints = Math.min(300, allData.length); // Limit to 300 points for performance
-      const step = Math.max(1, Math.floor(allData.length / maxPoints));
       
       // Use configurable window size
       const recentData = allData.slice(-windowSize);
       
-      // Pad with empty slots if needed to maintain consistent array size
-      const paddedData = new Array(windowSize).fill(null);
-      recentData.forEach((point, index) => {
-        paddedData[windowSize - recentData.length + index] = point;
-      });
-      
-      // Convert to chart data with categorical x-axis
-      const chartData = paddedData.map((point, index) => ({
-        timestamp: point?.timestamp || Date.now(),
-        value: point?.value || null,
+      // Convert to chart data with categorical x-axis (no padding with nulls)
+      const chartData = recentData.map((point, index) => ({
+        timestamp: point.timestamp,
+        value: point.value,
         x: index.toString() // String index for categorical axis
       }));
       
       setPlotData(chartData);
     }
-  }, [data, buffer, windowSize, lastUpdateTime]);
+  }, [data, buffer, windowSize]);
 
   const formatTooltipLabel = (value: string) => {
     const index = parseInt(value);
@@ -88,7 +79,7 @@ export default function RealTimePlot({
             <YAxis 
               stroke="#666"
               tickFormatter={(value) => `${value.toFixed(1)}${unit}`}
-              domain={['auto', 'auto']}
+              domain={title.includes('button') || title.includes('toggle') || title.includes('led') ? [-0.1, 1.1] : ['auto', 'auto']}
               allowDataOverflow={false}
             />
             <Tooltip 
@@ -101,13 +92,13 @@ export default function RealTimePlot({
               }}
             />
             <Line 
-              type="monotone" 
+              type="stepAfter" 
               dataKey="value" 
               stroke={color} 
               strokeWidth={2}
               dot={false}
               isAnimationActive={false}
-              connectNulls={false}
+              connectNulls={true}
             />
           </LineChart>
         </ResponsiveContainer>

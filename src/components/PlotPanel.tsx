@@ -228,7 +228,7 @@ export default function PlotPanel({ isConnected, variables }: PlotPanelProps) {
           </button>
 
           <span className={`status-indicator ${isCollecting ? 'collecting' : 'stopped'}`} style={{ fontWeight: 'bold', fontSize: '14px' }}>
-            {isPaused ? '⏸️ Paused' : (isCollecting ? '🔴 Recording' : '⏹️ Stopped')}
+            {isPaused ? '⏸️ Paused' : ''}
           </span>
           
           <button 

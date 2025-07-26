@@ -26,17 +26,30 @@ export default function VariableControl({ variable, value, onValueChange }: Vari
     
     if (variable.var_type === "UINT8" && variable.max_value === 1) {
       // Button/Toggle control
-      return (
-        <div className="control-button">
-          <button
-            onClick={() => handleChange(localValue === 0 ? 1 : 0)}
-            disabled={isReadOnly}
-            className={`toggle-btn ${localValue === 1 ? 'active' : ''}`}
-          >
-            {variable.name}: {localValue === 1 ? 'ON' : 'OFF'}
-          </button>
-        </div>
-      );
+      if (isReadOnly) {
+        // Read-only binary indicator
+        return (
+          <div className="control-display">
+            <label>{variable.name}:</label>
+            <span className={`binary-indicator ${value === 1 ? 'active' : 'inactive'}`}>
+              {value === 1 ? 'ON' : 'OFF'}
+            </span>
+          </div>
+        );
+      } else {
+        // Read-write toggle button
+        return (
+          <div className="control-button">
+            <button
+              onClick={() => handleChange(localValue === 0 ? 1 : 0)}
+              disabled={isReadOnly}
+              className={`toggle-btn ${localValue === 1 ? 'active' : ''}`}
+            >
+              {variable.name}: {localValue === 1 ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        );
+      }
     } else if (variable.var_type === "FLOAT" || variable.var_type === "UINT8") {
       // Slider or number display
       if (isReadOnly) {
